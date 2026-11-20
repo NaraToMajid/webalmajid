@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#ffffff">
+<title>HIHU</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --ink: #000000;
+    color-scheme: light;
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  html { height: 100%; scroll-padding-top: env(safe-area-inset-top, 0px); }
+  body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--ink); }
+  #stage {
+    position: relative; width: 100%; height: 100%;
+    touch-action: none; cursor: grab;
+    -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent;
+  }
+  #stage:active { cursor: grabbing; }
+  #stage canvas { display: block; width: 100%; height: 100%; }
+
+  /* Cadangan kalau WebGL tidak tersedia */
+  #fallback {
+    display: none; position: absolute; inset: 0; margin: 0;
+    align-items: center; justify-content: center;
+    font: 900 clamp(64px, 26vw, 320px)/1 "Arial Black", "Helvetica Neue", Arial, sans-serif;
+    letter-spacing: .04em; color: var(--ink);
+    text-shadow: .02em .02em 0 #1a1a1a, .04em .04em 0 #222, .06em .06em 0 #2a2a2a, .08em .08em 0 #333,
+                 .10em .10em 0 #3a3a3a, .12em .12em 0 #444, .14em .14em 0 #4c4c4c, .16em .16em 0 #555;
+  }
+  body.no-webgl #fallback { display: flex; }
+</style>
+</head>
+<body>
+<div id="stage" role="img" aria-label="HIHU">
+  <h1 id="fallback">HIHU</h1>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function () {
+  var stage = document.getElementById('stage');
+  function fallback() { document.body.classList.add('no-webgl'); }
+  if (!window.THREE) { fallback(); return; }
+
+  var renderer;
+  try { renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true }); }
+  catch (e) { fallback(); return; }
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  stage.appendChild(renderer.domElement);
+
+  var scene = new THREE.Scene();
+  var camera = new THREE.PerspectiveCamera(30, 1, 0.1, 300);
+
+  /* ---------- Bentuk huruf (tanpa file font) ---------- */
+  var HT = 5, S = 1.15, W = 3.7, GAP = 0.85, DEPTH = 1.5;
+
+  function shapeH() {
+    var s = new THREE.Shape(), m = HT / 2, t = S / 2;
+    s.moveTo(0, 0); s.lineTo(S, 0); s.lineTo(S, m - t); s.lineTo(W - S, m - t);
+    s.lineTo(W - S, 0); s.lineTo(W, 0); s.lineTo(W, HT); s.lineTo(W - S, HT);
+    s.lineTo(W - S, m + t); s.lineTo(S, m + t); s.lineTo(S, HT); s.lineTo(0, HT);
+    s.closePath();
+    return s;
+  }
+  function shapeI() {
+    var s = new THREE.Shape();
+    s.moveTo(0, 0); s.lineTo(S, 0); s.lineTo(S, HT); s.lineTo(0, HT); s.closePath();
+    return s;
+  }
+  function shapeU() {
+    var s = new THREE.Shape(), ro = W / 2, ri = ro - S, n = 24, i, a;
+    s.moveTo(0, HT); s.lineTo(0, ro);
+    for (i = 1; i < n; i++) { a = Math.PI + Math.PI * i / n; s.lineTo(ro + ro * Math.cos(a), ro + ro * Math.sin(a)); }
+    s.lineTo(W, ro); s.lineTo(W, HT); s.lineTo(W - S, HT); s.lineTo(W - S, ro);
+    for (i = 1; i < n; i++) { a = 2 * Math.PI - Math.PI * i / n; s.lineTo(ro + ri * Math.cos(a), ro + ri * Math.sin(a)); }
+    s.lineTo(S, ro); s.lineTo(S, HT); s.closePath();
+    return s;
+  }
+
+  /* Haluskan permukaan melengkung, sudut tajam huruf tetap tegas */
+  function smoothNormals(geo, deg) {
+    var p = geo.attributes.position, nr = geo.attributes.normal, n = p.count;
+    var cosT = Math.cos(deg * Math.PI / 180), map = {}, out = new Float32Array(n * 3);
+    var i, j, k, list, b, sx, sy, sz, l;
+    function key(v) {
+      return Math.round(p.getX(v) * 1e4) + '_' + Math.round(p.getY(v) * 1e4) + '_' + Math.round(p.getZ(v) * 1e4);
+    }
+    for (i = 0; i < n; i++) { k = key(i); (map[k] = map[k] || []).push(i); }
+    for (i = 0; i < n; i++) {
+      list = map[key(i)]; sx = sy = sz = 0;
+      for (j = 0; j < list.length; j++) {
+        b = list[j];
+        if (nr.getX(i) * nr.getX(b) + nr.getY(i) * nr.getY(b) + nr.getZ(i) * nr.getZ(b) > cosT) {
+          sx += nr.getX(b); sy += nr.getY(b); sz += nr.getZ(b);
+        }
+      }
+      l = Math.sqrt(sx * sx + sy * sy + sz * sz) || 1;
+      out[i * 3] = sx / l; out[i * 3 + 1] = sy / l; out[i * 3 + 2] = sz / l;
+    }
+    geo.setAttribute('normal', new THREE.BufferAttribute(out, 3));
+  }
+
+  var opts = { depth: DEPTH, bevelEnabled: true, bevelThickness: 0.22, bevelSize: 0.16, bevelSegments: 5 };
+  var mat = new THREE.MeshPhysicalMaterial({
+    color: 0x050505, roughness: 0.3, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.08
+  });
+
+  var text = new THREE.Group(), x = 0;
+  [[shapeH, W], [shapeI, S], [shapeH, W], [shapeU, W]].forEach(function (L) {
+    var geo = new THREE.ExtrudeGeometry(L[0](), opts);
+    geo.translate(0, 0, -DEPTH / 2);
+    smoothNormals(geo, 35);
+    var mesh = new THREE.Mesh(geo, mat);
+    mesh.position.x = x;
+    text.add(mesh);
+    x += L[1] + GAP;
+  });
+  var total = x - GAP;
+  text.position.set(-total / 2, -HT / 2, 0);
+
+  var pivot = new THREE.Group();
+  pivot.add(text);
+  scene.add(pivot);
+
+  /* ---------- Cahaya & pantulan ---------- */
+  var key = new THREE.DirectionalLight(0xffffff, 1.2); key.position.set(-6, 8, 10);
+  var rim = new THREE.DirectionalLight(0xffffff, 0.9); rim.position.set(8, 3, -6);
+  scene.add(key, rim);
+
+  try {
+    var c = document.createElement('canvas'); c.width = 512; c.height = 256;
+    var g = c.getContext('2d');
+    var grad = g.createLinearGradient(0, 0, 0, 256);
+    grad.addColorStop(0, '#ffffff'); grad.addColorStop(0.5, '#a0a0a0'); grad.addColorStop(1, '#303030');
+    g.fillStyle = grad; g.fillRect(0, 0, 512, 256);
+    g.fillStyle = '#ffffff';
+    g.fillRect(40, 60, 90, 70); g.fillRect(250, 40, 110, 50); g.fillRect(400, 80, 70, 90);
+    var tex = new THREE.CanvasTexture(c);
+    tex.mapping = THREE.EquirectangularReflectionMapping;
+    tex.encoding = THREE.sRGBEncoding;
+    var pm = new THREE.PMREMGenerator(renderer);
+    scene.environment = pm.fromEquirectangular(tex).texture;
+    tex.dispose(); pm.dispose();
+  } catch (e) { /* tanpa pantulan lingkungan, lampu saja sudah cukup */ }
+
+  /* ---------- Geser untuk memutar ---------- */
+  var yaw = 0, pitch = 0, dragging = false, lx = 0, ly = 0;
+  stage.addEventListener('pointerdown', function (e) {
+    dragging = true; lx = e.clientX; ly = e.clientY;
+    try { stage.setPointerCapture(e.pointerId); } catch (err) {}
+  });
+  stage.addEventListener('pointermove', function (e) {
+    if (!dragging) return;
+    yaw += (e.clientX - lx) * 0.01;
+    pitch = Math.max(-1.2, Math.min(1.2, pitch + (e.clientY - ly) * 0.01));
+    lx = e.clientX; ly = e.clientY;
+  });
+  function release() {
+    dragging = false;
+    yaw = Math.atan2(Math.sin(yaw), Math.cos(yaw));
+  }
+  stage.addEventListener('pointerup', release);
+  stage.addEventListener('pointercancel', release);
+
+  /* ---------- Ukuran layar ---------- */
+  function resize() {
+    var w = stage.clientWidth || 1, h = stage.clientHeight || 1;
+    renderer.setSize(w, h, false);
+    camera.aspect = w / h;
+    var tanH = Math.tan(camera.fov * Math.PI / 360);
+    var dW = (total * 1.25) / (2 * tanH * camera.aspect);
+    var dH = (HT * 2.2) / (2 * tanH);
+    camera.position.set(0, 0, Math.max(dW, dH));
+    camera.updateProjectionMatrix();
+  }
+  resize();
+  if (window.ResizeObserver) new ResizeObserver(resize).observe(stage);
+  else window.addEventListener('resize', resize);
+
+  /* ---------- Animasi ---------- */
+  var clock = new THREE.Clock();
+  var sway = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 1;
+  function frame() {
+    var dt = Math.min(clock.getDelta(), 0.05), t = clock.elapsedTime;
+    if (!dragging) { var k = Math.exp(-dt * 2.2); yaw *= k; pitch *= k; }
+    pivot.rotation.y = yaw + Math.sin(t * 0.7) * 0.55 * sway;
+    pivot.rotation.x = pitch + Math.sin(t * 0.5) * 0.12 * sway;
+    renderer.render(scene, camera);
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
